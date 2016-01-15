@@ -1,38 +1,69 @@
 #!/usr/bin/env python
 
 import sys
+import os
 import xml.etree.ElementTree as ET
 import shapes as shapes_pkg
 from shapes import point_generator
 from config import *
 
+
+def write_gcode(data):
+    f = open(sys.argv[2], 'a')
+    f.write("%s\n" % data)
+    f.close()
+
 def generate_gcode():
     svg_shapes = set(['rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'path'])
-    
-    tree = ET.parse(sys.stdin)
+
+    if os.path.exists(sys.argv[1]):
+        tree = ET.parse(sys.argv[1])
+    else:
+        print "Error: Could not open file '%s'" % sys.argv[1]
+    if os.path.exists(sys.argv[2]):
+        os.unlink(sys.argv[2])
     root = tree.getroot()
-    
+
     width = root.get('width')
     height = root.get('height')
     if width == None or height == None:
         viewbox = root.get('viewBox')
         if viewbox:
-            _, _, width, height = viewbox.split()                
+            _, _, width, height = viewbox.split()
 
     if width == None or height == None:
-        print "Unable to get width and height for the svg"
+        print "Error: Unable to get width and height for the svg"
         sys.exit(1)
 
-    width = float(width)
-    height = float(height)
+    viewbox = root.get('viewBox')
+    if viewbox:
+        _, _, ww, hh = viewbox.split()
+        print "ViewBox w=%s h=%s" % (ww, hh)
+        ww = float(ww)
+        hh = float(hh)
 
-    scale_x = bed_max_x / max(width, height)
-    scale_y = bed_max_y / max(width, height)
+    width = float(width.rstrip('mm'))
+    height = float(height.rstrip('mm'))
 
-    print preamble 
-    
+    scale_x = bed_max_x / max(ww, hh)
+    scale_y = bed_max_y / max(ww, hh)
+    '''
+
+    scale_x = 0.25
+    scale_y = 0.25
+    '''
+    offset_x = 0.0
+    offset_y = 0.0
+
+    write_gcode(preamble)
+    first = True
+
+    maxX = None
+    minX = None
+    maxY = None
+    minY = None
+
     for elem in root.iter():
-        
         try:
             _, tag_suffix = elem.tag.split('}')
         except ValueError:
@@ -45,17 +76,49 @@ def generate_gcode():
             m = shape_obj.transformation_matrix()
 
             if d:
-                print shape_preamble 
+                write_gcode(shape_preamble)
                 p = point_generator(d, m, smoothness)
                 for x,y in p:
-                    if x > 0 and x < bed_max_x and y > 0 and y < bed_max_y:  
-                        print "G1 X%0.1f Y%0.1f" % (scale_x*x, scale_y*y) 
-                print shape_postamble
+                    xs = scale_x*x
+                    ys = scale_y*y
+                    xs += offset_x
+                    ys += offset_y
+                    if not maxX:
+                        maxX = xs
+                    elif xs > maxX:
+                        maxX = xs
+                    if not minX:
+                        minX = xs
+                    elif xs < minX:
+                        minX = xs
+                    if not maxY:
+                        maxY = ys
+                    elif ys > maxY:
+                        maxY = ys
+                    if not minY:
+                        minY = ys
+                    elif ys < minY:
+                        minY = ys
 
-    print postamble 
+                    if xs > bed_min_x and xs < bed_max_x and ys > bed_min_y and ys < bed_max_y:
+                        if first:
+                            write_gcode("G1 X%0.1f Y%0.1f" % (xs, ys))
+                            write_gcode(after_move)
+                            first = False
+                        write_gcode("G1 X%0.1f Y%0.1f" % (xs, ys))
+                    else:
+                        print "Error: out of bounds! (X%0.1f Y%0.1f)" % (xs, ys)
+                first = True
+                write_gcode(before_move)
+                #print shape_postamble
+    write_gcode(postamble)
+
+    print "Max X = %0.1f" % maxX
+    print "Min X = %0.1f" % minX
+    print "Max Y = %0.1f" % maxY
+    print "Min Y = %0.1f" % minY
+    print "DeltaX = %0.1f" % (maxX - minX)
+    print "DeltaY = %0.1f" % (maxY - minY)
 
 if __name__ == "__main__":
     generate_gcode()
-
-
-
