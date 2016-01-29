@@ -27,13 +27,11 @@ def generate_gcode():
     width = root.get('width')
     height = root.get('height')
     if width == None or height == None:
-        viewbox = root.get('viewBox')
-        if viewbox:
-            _, _, width, height = viewbox.split()
-
-    if width == None or height == None:
         print "Error: Unable to get width and height for the svg"
         sys.exit(1)
+    else:
+        width = float(width.rstrip('mm'))
+        height = float(height.rstrip('mm'))
 
     viewbox = root.get('viewBox')
     if viewbox:
@@ -41,19 +39,23 @@ def generate_gcode():
         print "ViewBox w=%s h=%s" % (ww, hh)
         ww = float(ww)
         hh = float(hh)
+    else:
+        print "Error: Unable to get viewbox for the svg"
+        sys.exit(1)
+    
+    # Inkscape scale: http://wiki.inkscape.org/wiki/index.php/Units_In_Inkscape
+    dpi = 96.0
+    scale_x = width / ww
+    scale_y = height / hh
+    if scale_x != scale_y:
+        print "Warning: width and height scale factors are not equal!"
 
-    width = float(width.rstrip('mm'))
-    height = float(height.rstrip('mm'))
-
-    scale_x = bed_max_x / max(ww, hh)
-    scale_y = bed_max_y / max(ww, hh)
-    '''
-
-    scale_x = 0.25
-    scale_y = 0.25
-    '''
-    offset_x = 0.0
-    offset_y = 0.0
+    print "Info: Document scale factor is %0.1f %0.1f" % (scale_x, scale_y)
+    if width > bed_max_x or height > bed_max_y:
+        print "Info: Document area larger than print bed, extra scaling needed!"
+        scale_x = (bed_max_x / max(width, height)) * scale_x
+        scale_y = (bed_max_y / max(width, height)) * scale_y
+        print "Info: New scale factor is %0.1f %0.1f" % (scale_x, scale_y)
 
     write_gcode(preamble)
     first = True
@@ -81,6 +83,10 @@ def generate_gcode():
                 for x,y in p:
                     xs = scale_x*x
                     ys = scale_y*y
+                    if flipX:
+                        xs = -xs + bed_max_x
+                    if flipY:
+                        ys = -ys + bed_max_y
                     xs += offset_x
                     ys += offset_y
                     if not maxX:
@@ -113,12 +119,12 @@ def generate_gcode():
                 #print shape_postamble
     write_gcode(postamble)
 
-    print "Max X = %0.1f" % maxX
-    print "Min X = %0.1f" % minX
-    print "Max Y = %0.1f" % maxY
-    print "Min Y = %0.1f" % minY
-    print "DeltaX = %0.1f" % (maxX - minX)
-    print "DeltaY = %0.1f" % (maxY - minY)
+    print "Min X = %0.1fmm" % minX
+    print "Max X = %0.1fmm" % maxX
+    print "Min Y = %0.1fmm" % minY
+    print "Max Y = %0.1fmm" % maxY
+    print "DeltaX = %0.1fmm" % (maxX - minX)
+    print "DeltaY = %0.1fmm" % (maxY - minY)
 
 if __name__ == "__main__":
     generate_gcode()
